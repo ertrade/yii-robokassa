@@ -1,0 +1,6 @@
+{
+    "name": "ladamalina/yii-robokassa",
+    "description": "Yii component for integration with Robokassa payment system",
+    "keywords": ["payment", "robokassa", "yii"],
+    "license": "MIT"
+}
