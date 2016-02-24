@@ -21,9 +21,7 @@ class Robokassa extends CApplicationComponent
     {
         $sign = $this->getPaySign($nOutSum, $nInvId, $sUserEmail);
 
-        $url = $this->isTest
-            ? 'http://test.robokassa.ru/Index.aspx?'
-            : 'https://merchant.roboxchange.com/Index.aspx?';
+        $url = 'https://merchant.roboxchange.com/Index.aspx?';
 
         $url .= "MrchLogin={$this->sMerchantLogin}&";
         $url .= "OutSum={$nOutSum}&";
@@ -33,6 +31,10 @@ class Robokassa extends CApplicationComponent
         $url .= "IncCurrLabel={$this->sIncCurrLabel}&";
         $url .= "Email={$sUserEmail}&";
         $url .= "Culture={$this->sCulture}";
+
+        if ($this->isTest) {
+            $url .= '&IsTest=1';
+        }
 
         Yii::app()->controller->redirect($url);
     }
