@@ -2,6 +2,9 @@
 
 class Robokassa extends CApplicationComponent
 {
+    const CHECK_PASS1 = 1;
+    const CHECK_PASS2 = 2;
+
     public $sMerchantLogin;
     public $sMerchantPass1;
     public $sMerchantPass2;
@@ -17,29 +20,40 @@ class Robokassa extends CApplicationComponent
 
     protected $_order;
 
-    public function pay($nOutSum, $nInvId, $sInvDesc, $sUserEmail)
+    public function pay($nOutSum, $nInvId, $sInvDesc, $sUserEmail, $extraParams = array())
     {
-        $sign = $this->getPaySign($nOutSum, $nInvId, $sUserEmail);
+        ksort($extraParams);
+        $sShpParams = array();
+        foreach ($extraParams as $key => $value) {
+            $sShpParams['Shp_'.$key] = urlencode($value);
+        }
+
+        $sign = $this->getPaySign($nOutSum, $nInvId, $sShpParams);
 
         $url = 'https://merchant.roboxchange.com/Index.aspx?';
 
-        $url .= "MrchLogin={$this->sMerchantLogin}&";
-        $url .= "OutSum={$nOutSum}&";
-        $url .= "InvId={$nInvId}&";
-        $url .= "Desc={$sInvDesc}&";
-        $url .= "SignatureValue={$sign}&";
-        $url .= "IncCurrLabel={$this->sIncCurrLabel}&";
-        $url .= "Email={$sUserEmail}&";
-        $url .= "Culture={$this->sCulture}";
-
+        $params = array(
+            "MrchLogin={$this->sMerchantLogin}",
+            "OutSum={$nOutSum}",
+            "InvId={$nInvId}",
+            "Desc={$sInvDesc}",
+            "SignatureValue={$sign}",
+            "IncCurrLabel={$this->sIncCurrLabel}",
+            "Email={$sUserEmail}",
+            "Culture={$this->sCulture}"
+        );
         if ($this->isTest) {
-            $url .= '&IsTest=1';
+            array_push($params, 'IsTest=1');
         }
+        foreach ($sShpParams as $key => $value) {
+            array_push($params, $key.'='.urlencode($value));
+        }
+        $url .= implode('&', $params);
 
         Yii::app()->controller->redirect($url);
     }
 
-    private function getPaySign($nOutSum, $nInvId)
+    private function getPaySign($nOutSum, $nInvId, $sShpParams)
     {
         $keys = array(
             $this->sMerchantLogin,
@@ -47,23 +61,32 @@ class Robokassa extends CApplicationComponent
             $nInvId,
             $this->sMerchantPass1,
         );
+        foreach ($sShpParams as $key => $value) {
+            array_push($keys, $key.'='.$value);
+        }
         return md5(implode(':', $keys));
     }
 
     public function result()
     {
-        $var = $_GET + $_POST;
-        extract($var);
-        $event = new CEvent($this);
+        $http = $_GET + $_POST;
+
+        $ShpParams = array_filter($http, function($key) {
+            return strncmp($key, 'Shp_', 4) === 0;
+        }, ARRAY_FILTER_USE_KEY);
 
         $valid = true;
 
-        if (!$valid || !isset($OutSum, $InvId, $SignatureValue)) {
+        if (isset($http['OutSum'], $http['InvId'], $http['SignatureValue'])) {
+            $OutSum = $http['OutSum'];
+            $InvId = $http['InvId'];
+            $SignatureValue = $http['SignatureValue'];
+        } else {
             $this->params = array('reason' => 'Dont set need value');
             $valid = false;
         }
 
-        if (!$valid || !$this->checkResultSignature($OutSum, $InvId, $SignatureValue)) {
+        if (!$valid || !$this->checkResultSignature($OutSum, $InvId, $SignatureValue, $ShpParams)) {
             $this->params = array('reason' => 'Signature fail');
             $valid = false;
         }
@@ -78,6 +101,7 @@ class Robokassa extends CApplicationComponent
             $valid = false;
         }
 
+        $event = new CEvent($this);
         if ($valid) {
             if ($this->hasEventHandler('onSuccess')) {
                 $this->params = array('order' => $this->_order);
@@ -102,20 +126,21 @@ class Robokassa extends CApplicationComponent
         return false;
     }
 
-    public function checkResultSignature($OutSum, $InvId, $SignatureValue, $checkType = 0)
+    public function checkResultSignature($OutSum, $InvId, $SignatureValue, $ShpParams = array(), $checkType = self::CHECK_PASS2)
     {
         $keys = array(
             $OutSum,
             $InvId,
-            $checkType ? $this->sMerchantPass1 : $this->sMerchantPass2,
+            $checkType == self::CHECK_PASS1 ? $this->sMerchantPass1 : $this->sMerchantPass2,
         );
+        ksort($ShpParams);
+        foreach ($ShpParams as $key => $value) {
+            array_push($keys, $key.'='.$value);
+        }
 
         $sign = strtoupper(md5(implode(':', $keys)));
 
-        if (strtoupper($SignatureValue) == $sign)
-            return true;
-
-        return false;
+        return strtoupper($SignatureValue) == $sign;
     }
 
     public function onSuccess($event)
